@@ -3,6 +3,8 @@ import string
 import random
 from pydantic import BaseModel
 import os
+import json
+import base64
 
 app = FastAPI()
 users = []
@@ -43,10 +45,20 @@ async def createUser(user: User, room_id: str):
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     while True:
-        data = await websocket.receive_bytes()
+        data = await websocket.receive()
+        # data = json.loads(data)
         file_path = os.path.join("images", "uploaded_image.png")
-        with open(file_path, "wb") as f:
-            f.write(data)
+        print(data)
+        # with open(file_path, "wb") as f:
+        #     imageData = base64.b64decode(data["image"])
+        #     f.write(imageData)  
         # await websocket.send_text(f"Message text was: {data}")
-        print(f"Received data of size: {len(data)} bytes")
-        # await websocket.send_text(f"File received and saved to {file_path}")
+        # print(f"Received data of size: {len(data)} bytes")
+        # send data to the model for processsing here
+
+        #send the data to all the users in the room the pic was sent in
+        await websocket.send_bytes(data);
+
+
+        
+        # websocket.send
