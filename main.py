@@ -49,4 +49,4 @@ async def websocket_endpoint(websocket: WebSocket):
             f.write(data)
         # await websocket.send_text(f"Message text was: {data}")
         print(f"Received data of size: {len(data)} bytes")
-        await websocket.send_text(f"File received and saved to {file_path}")
+        # await websocket.send_text(f"File received and saved to {file_path}")
