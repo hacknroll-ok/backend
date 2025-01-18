@@ -169,42 +169,47 @@ async def websocket_endpoint(websocket: WebSocket):
     randomCategoryNumber = random.randint(0, len(categories) - 1)
     disconnected_websockets = []
 
-
+    # Initial game setup
     async with websockets_lock:
         for ws in websockets:
             try:
-                await ws.send_text(json.dumps(users))
+                await ws.send_text(json.dumps(users))  # Send the player list
                 if len(users) == 5:
                     await ws.send_text(json.dumps({
                         "round": 1,
-                        "playerDrawing": 0,
+                        "playerDrawing": 0,  # The first player starts drawing
                         "drawingSubject": categories[randomCategoryNumber],
                     }))
             except WebSocketDisconnect:
                 disconnected_websockets.append(ws)
-        
+
         # Remove disconnected websockets
         for ws in disconnected_websockets:
             websockets.remove(ws)
-    
-    try: 
+
+    try:
         while True:
             # Receive image data from WebSocket
             data = await websocket.receive_bytes()
             global playerCounter
             global roundNumber
             randomCategoryNumber = random.randint(0, len(categories) - 1)
-            await websocket.send_text(json.dumps({
+            
+            # Broadcast to all players whose turn it is
+            for ws in websockets:
+                await ws.send_text(json.dumps({
+                    "type": "newTurn",
                     "round": roundNumber,
                     "playerDrawing": playerCounter,
-                    "drawingSubject": categories[randomCategoryNumber],
-            }))
+                    "drawingSubject": categories[randomCategoryNumber]
+                }))
+
+            # Move to the next player
             playerCounter += 1
-            if (playerCounter == 4):
+            if playerCounter == len(users):  # After the last player, start a new round
                 roundNumber += 1
                 playerCounter = 0
-            
-            
+
             # Create a PIL image from the byte data
             img = Image.open(BytesIO(data))
 
@@ -212,48 +217,23 @@ async def websocket_endpoint(websocket: WebSocket):
             if img.mode == 'RGBA':
                 # Create a white background image the same size as the original
                 background = Image.new('RGB', img.size, (255, 255, 255))
-                
-                # Paste the original image onto the white background, using the alpha channel as mask
                 background.paste(img, mask=img.split()[3])  # Use the alpha channel as mask
-                
                 img = background
 
             # Define the file path to save the image
             file_path = os.path.join("images", "uploaded_image.png")
-
-            # Save the image with a white background
             img.save(file_path)
 
-            # file_path = os.path.join("images", "uploaded_image.png")
-
-            # # Save the received image
-            # with open(file_path, "wb") as f:
-            #     f.write(data)
-            
-            # print(f"Received data of size: {len(data)} bytes")
-            
-            # Load and preprocess the image
+            # Preprocess the image
             processed_image = preprocess_image(file_path)
 
-            
-            # # Set the input tensor for the model
-            # interpreter.set_tensor(input_details[0]['index'], processed_image)
-            
-            # # Run inference
-            # interpreter.invoke()
-
-            # # Get the output tensor
-            # output_data = interpreter.get_tensor(output_details[0]['index'])
-
-            # # Get the class with the highest probability
-            # prediction = np.argmax(output_data)
-            
+            # Run prediction (for the player drawing)
             prediction = model.predict(processed_image)[0]
             predicted_class = np.argmax(prediction)
 
-            # Send prediction result back to WebSocket
+            # Send the prediction result to the current player (drawing)
             await websocket.send_text(f"Prediction: {categories[predicted_class]}")
-    
+
     except WebSocketDisconnect:
         async with websockets_lock:
             websockets.remove(websocket)
