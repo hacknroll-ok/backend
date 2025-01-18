@@ -102,7 +102,7 @@ def preprocess_image(img_path):
     img = Image.open(img_path)
 
     # Resize the image to 28x28 pixels, preserving the aspect ratio and padding with white
-    img_resized = ImageOps.fit(img, (28, 28), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+    img_resized = ImageOps.fit(img, (50, 50), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
 
     img_resized = img_resized.convert('L')
 
