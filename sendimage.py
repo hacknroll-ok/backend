@@ -12,15 +12,19 @@ async def send_png_file():
             with open(file_path, "rb") as f:
                 binary_data = f.read()
 
-            # Send the binary data
-            await websocket.send(binary_data)
-            print(f"Sent file: {file_path}")
+            with open("text.txt", "wb") as output_file:
+                output_file.write(binary_data)
 
-            # Receive a response
-            response = await websocket.recv()
-            print(f"Server response: {response}")
+            # print(f"Stored received data in: {output_file_path}")
+            # Send the binary data
+            # await websocket.send(binary_data)
+            # print(f"Sent file: {file_path}")
+
+            # # Receive a response
+            # response = await websocket.recv()
+            # print(f"Server response: {response}")
             
             # Wait for a few seconds before sending the next image
-            await asyncio.sleep(3)
+            # await asyncio.sleep(3)
 
 asyncio.run(send_png_file())
