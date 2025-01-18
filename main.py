@@ -5,61 +5,44 @@ from pydantic import BaseModel
 import os
 import tensorflow as tf
 import numpy as np
-from PIL import Image
+from tensorflow.keras.preprocessing import image
+from tensorflow.keras.models import load_model
+from PIL import Image, ImageOps
 from io import BytesIO
 
 app = FastAPI()
 users = []
 roomsAndUsers = {}
 
-# TensorFlow Lite model loading
-interpreter = tf.lite.Interpreter(model_path="model/model.tflite")
-interpreter.allocate_tensors()
+# # TensorFlow Lite model loading
+# interpreter = tf.lite.Interpreter(model_path="model/model.tflite")
+# interpreter.allocate_tensors()
 
-# Get model input and output details
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+# # Get model input and output details
+# input_details = interpreter.get_input_details()
+# output_details = interpreter.get_output_details()
 
-# Preprocessing function for the image
-def preprocess_image(image: Image.Image):
-    # Convert the image to grayscale
-    image = image.convert("L")
-    
-    # Scale down the image to the target size (28x28)
-    image = image.resize((28, 28), Image.Resampling.LANCZOS)
-    
+model = load_model('./model/model.keras') 
+
+def preprocess_image(img_path):
+     # Load the image in grayscale mode
+    img = Image.open(img_path)
+
+    # Resize the image to 28x28 pixels, preserving the aspect ratio and padding with white
+    img_resized = ImageOps.fit(img, (28, 28), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+
+    img_resized = img_resized.convert('L')
+
     # Convert the image to a NumPy array
-    image = np.asarray(image, dtype=np.float32)
-    
-    # Normalize pixel values to range [0, 1]
-    image /= 255.0
-    
-    # Add batch dimension and channel dimension (for TensorFlow Lite model input)
-    image = np.expand_dims(image, axis=0)  # Add batch dimension
-    image = np.expand_dims(image, axis=-1)  # Add channel dimension
-    
-    return image
+    img_array = np.array(img_resized)
 
+    # Expand dimensions to add a batch dimension for model input
+    img_array = np.expand_dims(img_array, axis=0)
 
-def save_processed_image_as_png(original_image_path, processed_file_path):
-    # Load the original image
-    original_image = Image.open(original_image_path)
-    
-    # Preprocess the image
-    processed_image = preprocess_image(original_image)
-    
-    # Remove batch and channel dimensions for saving
-    processed_image_for_saving = processed_image.squeeze()  # Remove extra dimensions
-    
-    # Scale back to range [0, 255] for saving
-    processed_image_for_saving = (processed_image_for_saving * 255).astype(np.uint8)
-    
-    # Convert the NumPy array back to a PIL image
-    processed_image_pil = Image.fromarray(processed_image_for_saving)
-    
-    # Save as PNG
-    processed_image_pil.save(processed_file_path, format="PNG")
+    # Save the processed image for verification (optional)
+    img_resized.save('./images/processed_image.png')
 
+    return img_array
 
 class User(BaseModel):
     id: int
@@ -96,33 +79,102 @@ async def websocket_endpoint(websocket: WebSocket):
     while True:
         # Receive image data from WebSocket
         data = await websocket.receive_bytes()
+        
+        # Create a PIL image from the byte data
+        img = Image.open(BytesIO(data))
+
+        # Check if the image has an alpha channel (RGBA)
+        if img.mode == 'RGBA':
+            # Create a white background image the same size as the original
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            
+            # Paste the original image onto the white background, using the alpha channel as mask
+            background.paste(img, mask=img.split()[3])  # Use the alpha channel as mask
+            
+            img = background
+
+        # Define the file path to save the image
         file_path = os.path.join("images", "uploaded_image.png")
 
-        # Save the received image
-        with open(file_path, "wb") as f:
-            f.write(data)
+        # Save the image with a white background
+        img.save(file_path)
+
+        # file_path = os.path.join("images", "uploaded_image.png")
+
+        # # Save the received image
+        # with open(file_path, "wb") as f:
+        #     f.write(data)
         
-        print(f"Received data of size: {len(data)} bytes")
+        # print(f"Received data of size: {len(data)} bytes")
         
         # Load and preprocess the image
-        image = Image.open(BytesIO(data))
-        processed_image = preprocess_image(image)
-
-        processed_file_path = os.path.join("images", "processed_image.png")
-        save_processed_image_as_png(file_path, processed_file_path)
+        processed_image = preprocess_image(file_path)
 
         
-        # Set the input tensor for the model
-        interpreter.set_tensor(input_details[0]['index'], processed_image)
+        # # Set the input tensor for the model
+        # interpreter.set_tensor(input_details[0]['index'], processed_image)
         
-        # Run inference
-        interpreter.invoke()
+        # # Run inference
+        # interpreter.invoke()
 
-        # Get the output tensor
-        output_data = interpreter.get_tensor(output_details[0]['index'])
+        # # Get the output tensor
+        # output_data = interpreter.get_tensor(output_details[0]['index'])
 
-        # Get the class with the highest probability
-        prediction = np.argmax(output_data)
+        # # Get the class with the highest probability
+        # prediction = np.argmax(output_data)
         
+        prediction = model.predict(processed_image)[0]
+        predicted_class = np.argmax(prediction)
+
+        categories =[
+            "ant",
+            "bat",
+            "bear",
+            "bee",
+            "butterfly",
+            "camel",
+            "cat",
+            "cow",
+            "crab",
+            "crocodile",
+            "dog",
+            "dolphin",
+            "dragon",
+            "duck",
+            "elephant",
+            "fish",
+            "flamingo",
+            "frog",
+            "giraffe",
+            "hedgehog",
+            "horse",
+            "kangaroo",
+            "lion",
+            "lobster",
+            "monkey",
+            "mosquito",
+            "mouse",
+            "octopus",
+            "owl",
+            "panda",
+            "parrot",
+            "penguin",
+            "rabbit",
+            "raccoon",
+            "rhinoceros",
+            "scorpion",
+            "sea turtle",
+            "shark",
+            "sheep",
+            "snail",
+            "snake",
+            "spider",
+            "squirrel",
+            "swan",
+            "tiger",
+            "whale",
+            "zebra"
+        ]
+
         # Send prediction result back to WebSocket
-        await websocket.send_text(f"Prediction: {prediction}")
+        await websocket.send_text(f"Prediction: {categories[predicted_class]}")
