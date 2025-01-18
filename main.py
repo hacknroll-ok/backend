@@ -1,69 +1,52 @@
-from quickdraw import QuickDrawData, QuickDrawDataGroup
-from pathlib import Path
+from fastapi import FastAPI, WebSocket
+import string
+import random
+from pydantic import BaseModel
+import os
 
-image_size = (28, 28)
+app = FastAPI()
+users = []
+roomsAndUsers = {}
+class User(BaseModel):
+    id: int
+    name: str
+    score: int
+    
+# class Room(BaseModel):
+#     id: str
+    
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
 
-def generate_class_images(name, max_drawings, recognized):
-    directory = Path("dataset/" + name)
+@app.post("/api/rooms")
+async def createRoom():
+    # print(room);
+    room_id = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(5));
+    return {        
+        "message": "room created",
+        "Room Number": room_id    
+    }
 
-    if not directory.exists():
-        directory.mkdir(parents=True)
+@app.get("/api/rooms")
+async def getRooms():
+    room_list = list(roomsAndUsers.keys()); 
+    return {"rooms": room_list}
 
-    images = QuickDrawDataGroup(name, max_drawings=max_drawings, recognized=recognized)
-    for img in images.drawings:
-        filename = directory.as_posix() + "/" + str(img.key_id) + ".png"
-        img.get_image(stroke_width=3).resize(image_size).save(filename)
+@app.post("/api/users/{room_id}")
+async def createUser(user: User, room_id: str):
+    print(user);
+    roomsAndUsers[room_id].append(user);
+    return {"message": "user created"}
 
-categories =[
-    "ant",
-    "bat",
-    "bear",
-    "bee",
-    "butterfly",
-    "camel",
-    "cat",
-    "cow",
-    "crab",
-    "crocodile",
-    "dog",
-    "dolphin",
-    "dragon",
-    "duck",
-    "elephant",
-    "fish",
-    "flamingo",
-    "frog",
-    "giraffe",
-    "hedgehog",
-    "horse",
-    "kangaroo",
-    "lion",
-    "lobster",
-    "monkey",
-    "mosquito",
-    "mouse",
-    "octopus",
-    "owl",
-    "panda",
-    "parrot",
-    "penguin",
-    "rabbit",
-    "raccoon",
-    "rhinoceros",
-    "scorpion",
-    "sea turtle",
-    "shark",
-    "sheep",
-    "snail",
-    "snake",
-    "spider",
-    "squirrel",
-    "swan",
-    "tiger",
-    "whale",
-    "zebra"
-]
-
-for label in QuickDrawData().drawing_names:
-    if label in categories:
-        generate_class_images(label, max_drawings=1200, recognized=True)
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    while True:
+        data = await websocket.receive_bytes()
+        file_path = os.path.join("images", "uploaded_image.png")
+        with open(file_path, "wb") as f:
+            f.write(data)
+        # await websocket.send_text(f"Message text was: {data}")
+        print(f"Received data of size: {len(data)} bytes")
+        await websocket.send_text(f"File received and saved to {file_path}")
