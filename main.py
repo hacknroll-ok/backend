@@ -22,13 +22,44 @@ output_details = interpreter.get_output_details()
 
 # Preprocessing function for the image
 def preprocess_image(image: Image.Image):
+    # Convert the image to grayscale
     image = image.convert("L")
-    image = image.resize((28, 28))  # Resize to model input size
-    image = np.array(image)
-    image = image / 255.0  # Normalize the image
+    
+    # Scale down the image to the target size (28x28)
+    image = image.resize((28, 28), Image.Resampling.LANCZOS)
+    
+    # Convert the image to a NumPy array
+    image = np.asarray(image, dtype=np.float32)
+    
+    # Normalize pixel values to range [0, 1]
+    image /= 255.0
+    
+    # Add batch dimension and channel dimension (for TensorFlow Lite model input)
     image = np.expand_dims(image, axis=0)  # Add batch dimension
-    image = np.expand_dims(image, axis=-1)  # Add channel dimension if needed
-    return image.astype(np.float32)
+    image = np.expand_dims(image, axis=-1)  # Add channel dimension
+    
+    return image
+
+
+def save_processed_image_as_png(original_image_path, processed_file_path):
+    # Load the original image
+    original_image = Image.open(original_image_path)
+    
+    # Preprocess the image
+    processed_image = preprocess_image(original_image)
+    
+    # Remove batch and channel dimensions for saving
+    processed_image_for_saving = processed_image.squeeze()  # Remove extra dimensions
+    
+    # Scale back to range [0, 255] for saving
+    processed_image_for_saving = (processed_image_for_saving * 255).astype(np.uint8)
+    
+    # Convert the NumPy array back to a PIL image
+    processed_image_pil = Image.fromarray(processed_image_for_saving)
+    
+    # Save as PNG
+    processed_image_pil.save(processed_file_path, format="PNG")
+
 
 class User(BaseModel):
     id: int
@@ -76,6 +107,10 @@ async def websocket_endpoint(websocket: WebSocket):
         # Load and preprocess the image
         image = Image.open(BytesIO(data))
         processed_image = preprocess_image(image)
+
+        processed_file_path = os.path.join("images", "processed_image.png")
+        save_processed_image_as_png(file_path, processed_file_path)
+
         
         # Set the input tensor for the model
         interpreter.set_tensor(input_details[0]['index'], processed_image)
