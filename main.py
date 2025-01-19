@@ -29,6 +29,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+responseCount = 0
 users = []
 roomsAndUsers = {}
 websockets_lock = asyncio.Lock()
@@ -158,12 +159,38 @@ async def createUser(username: Username):
         "userId": userId - 1
     }
 
+@app.post("/api/game")
+async def updateScore(userId: int, isCorrect: bool):
+    global responseCount
+    disconnected_websockets = []
+    if isCorrect:
+        for user in users:
+            if user["id"] == userId:
+                user["score"] += 1
+                break
+    responseCount += 1
+    if responseCount == 5:
+        async with websockets_lock:
+            for ws in websockets:
+                try:
+                    await ws.send_text(json.dumps(users))  # Send the player list
+                    if len(users) == 5:
+                        await ws.send_text("current round ended")
+                except WebSocketDisconnect:
+                    disconnected_websockets.append(ws)
+
+            # Remove disconnected websockets
+            for ws in disconnected_websockets:
+                websockets.remove(ws)
+
+
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     global categories
+    global websockets
     async with websockets_lock:
         websockets.append(websocket)
     randomCategoryNumber = random.randint(0, len(categories) - 1)
@@ -189,50 +216,63 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         while True:
+
             # Receive image data from WebSocket
-            data = await websocket.receive_bytes()
+            data = await websocket.receive()
+            # print(data)
             global playerCounter
             global roundNumber
-            randomCategoryNumber = random.randint(0, len(categories) - 1)
-            
-            # Broadcast to all players whose turn it is
-            for ws in websockets:
-                await ws.send_text(json.dumps({
-                    "type": "newTurn",
-                    "round": roundNumber,
-                    "playerDrawing": playerCounter,
-                    "drawingSubject": categories[randomCategoryNumber]
-                }))
 
-            # Move to the next player
-            playerCounter += 1
-            if playerCounter == len(users):  # After the last player, start a new round
-                roundNumber += 1
-                playerCounter = 0
 
             # Create a PIL image from the byte data
-            img = Image.open(BytesIO(data))
+            if ("bytes" in data):
+                data = data["bytes"]
+                print(data)
+                randomCategoryNumber = random.randint(0, len(categories) - 1)
+                
+                # Broadcast to all players whose turn it is
+                for ws in websockets:
+                    await ws.send_text(json.dumps({
+                        "type": "newTurn",
+                        "round": roundNumber,
+                        "playerDrawing": playerCounter,
+                        "drawingSubject": categories[randomCategoryNumber]
+                    }))
 
-            # Check if the image has an alpha channel (RGBA)
-            if img.mode == 'RGBA':
-                # Create a white background image the same size as the original
-                background = Image.new('RGB', img.size, (255, 255, 255))
-                background.paste(img, mask=img.split()[3])  # Use the alpha channel as mask
-                img = background
+                # Move to the next 
+                playerCounter += 1
+                if playerCounter == len(users):  # After the last player, start a new round
+                    roundNumber += 1
+                    playerCounter = 0
+                
+                img = Image.open(BytesIO(data))
 
-            # Define the file path to save the image
-            file_path = os.path.join("images", "uploaded_image.png")
-            img.save(file_path)
+                # Check if the image has an alpha channel (RGBA)
+                if img.mode == 'RGBA':
+                    # Create a white background image the same size as the original
+                    background = Image.new('RGB', img.size, (255, 255, 255))
+                    background.paste(img, mask=img.split()[3])  # Use the alpha channel as mask
+                    img = background
 
-            # Preprocess the image
-            processed_image = preprocess_image(file_path)
+                # Define the file path to save the image
+                file_path = os.path.join("images", "uploaded_image.png")
+                img.save(file_path)
 
-            # Run prediction (for the player drawing)
-            prediction = model.predict(processed_image)[0]
-            predicted_class = np.argmax(prediction)
+                # Preprocess the image
+                processed_image = preprocess_image(file_path)
 
-            # Send the prediction result to the current player (drawing)
-            await websocket.send_text(f"Prediction: {categories[predicted_class]}")
+                # Run prediction (for the player drawing)
+                prediction = model.predict(processed_image)[0]
+                predicted_class = np.argmax(prediction)
+
+                # Send the prediction result to the current player (drawing)
+                await websocket.send_text(f"Prediction: {categories[predicted_class]}")
+
+            elif "text" in data:
+                coordinateData = data["text"]
+                coordinateData = json.loads(coordinateData)
+                # print(coordinateData)
+                await websocket.send_text(json.dumps(coordinateData))
 
     except WebSocketDisconnect:
         async with websockets_lock:
