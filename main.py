@@ -1,5 +1,4 @@
-from fastapi import FastAPI, WebSocket, File, UploadFile, WebSocketDisconnect, WebSocketException
-from websockets.exceptions import ConnectionClosed
+from fastapi import FastAPI, WebSocket, File, UploadFile, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import string
 import random
@@ -14,8 +13,7 @@ from io import BytesIO
 from typing import Optional
 import json
 import asyncio
-from ConnectionManager import ConnectionManager
-import traceback
+
 
 
 app = FastAPI()
@@ -31,16 +29,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-manager = ConnectionManager()
 responseCount = 0
-roundTracker = { 1: [], 2: [], 3: [], 4: [], 5:[]}
 users = []
 roomsAndUsers = {}
 websockets_lock = asyncio.Lock()
 userId = 0
 playerCounter = 0
 websockets = []
-roundNumber = 1
+roundNumber = 0
 categories =[
     "ant",
     "bat",
@@ -107,7 +103,7 @@ def preprocess_image(img_path):
     img = Image.open(img_path)
 
     # Resize the image to 28x28 pixels, preserving the aspect ratio and padding with white
-    img_resized = ImageOps.fit(img, (100, 100), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+    img_resized = ImageOps.fit(img, (50, 50), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
 
     img_resized = img_resized.convert('L')
 
@@ -157,6 +153,7 @@ async def createUser(username: Username):
     newUser = {"id": userId, "name": username.name, "score": 0}
     users.append(newUser);    
     userId += 1
+
     return {
         "message": "user created",
         "userId": userId - 1
@@ -165,98 +162,89 @@ async def createUser(username: Username):
 @app.post("/api/game")
 async def updateScore(userId: int, isCorrect: bool):
     global responseCount
+    disconnected_websockets = []
     if isCorrect:
         for user in users:
             if user["id"] == userId:
                 user["score"] += 1
                 break
     responseCount += 1
-    # if responseCount == 5:
-        # async with websockets_lock:
-        #     for ws in websockets:
-        #         try:
-        #             await ws.send_text(json.dumps(users))  # Send the player list
-        #             if len(users) == 5:
-        #                 await ws.send_text("current round ended")
-        #         except WebSocketDisconnect:
-        #             disconnected_websockets.append(ws)
+    if responseCount == 5:
+        async with websockets_lock:
+            for ws in websockets:
+                try:
+                    await ws.send_text(json.dumps(users))  # Send the player list
+                    if len(users) == 5:
+                        await ws.send_text("current round ended")
+                except WebSocketDisconnect:
+                    disconnected_websockets.append(ws)
 
-        #     # Remove disconnected websockets
-        #     for ws in disconnected_websockets:
-        #         websockets.remove(ws)
+            # Remove disconnected websockets
+            for ws in disconnected_websockets:
+                websockets.remove(ws)
+
 
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
     global categories
     global websockets
-    global manager
+    async with websockets_lock:
+        websockets.append(websocket)
     randomCategoryNumber = random.randint(0, len(categories) - 1)
-
-    # disconnected_websockets = []
-    await manager.connect(websocket)
-    # async with websockets_lock:
-    #     CLIENTS.add(websocket)
-    # print(CLIENTS)
-
-    
-
-    try:
-        await manager.broadcast(json.dumps(users));
-    except Exception as e:
-        print(f"Exception type: {type(e).__name__}")
-        print(e)
-        manager.disconnect(websocket)
-        print(manager.getActiveConnections())
-    
-    if len(users) == 5:
-        try: 
-            await manager.broadcast(json.dumps({
-                "type": "newTurn",
-                "round": 1,
-                "playerDrawing": 0,  # The first player starts drawing
-                "drawingSubject": categories[randomCategoryNumber],
-            }))
-        
-        except Exception as e:
-            print(f"Exception type: {type(e).__name__}")
-            print(e)
-            manager.disconnect(websocket)
-            print(manager.getActiveConnections())
-
-
-
-        
-    
+    disconnected_websockets = []
 
     # Initial game setup
-    # async with websockets_lock:
-    #     for ws in websockets:
-    #         try:
-    #             # await ws.send_text(json.dumps(users))  # Send the player list
-    #             # websocket.send_text(json.dumps(users))
+    async with websockets_lock:
+        for ws in websockets:
+            try:
+                await ws.send_text(json.dumps(users))  # Send the player list
+                if len(users) == 5:
+                    await ws.send_text(json.dumps({
+                        "round": 1,
+                        "playerDrawing": 0,  # The first player starts drawing
+                        "drawingSubject": categories[randomCategoryNumber],
+                    }))
+            except WebSocketDisconnect:
+                disconnected_websockets.append(ws)
 
-    #         except WebSocketDisconnect:
-    #             disconnected_websockets.append(ws)
-
-    #     # Remove disconnected websockets
-    #     for ws in disconnected_websockets:
-    #         websockets.remove(ws)
+        # Remove disconnected websockets
+        for ws in disconnected_websockets:
+            websockets.remove(ws)
 
     try:
         while True:
+
+            # Receive image data from WebSocket
+            data = await websocket.receive()
+            # print(data)
             global playerCounter
             global roundNumber
-            global roundTracker
 
-            # Receive image data from WebSocket 
 
-            data = await manager.receive(websocket)
             # Create a PIL image from the byte data
             if ("bytes" in data):
                 data = data["bytes"]
-                # print(data)                
+                print(data)
+                randomCategoryNumber = random.randint(0, len(categories) - 1)
+                
+                # Broadcast to all players whose turn it is
+                for ws in websockets:
+                    await ws.send_text(json.dumps({
+                        "type": "newTurn",
+                        "round": roundNumber,
+                        "playerDrawing": playerCounter,
+                        "drawingSubject": categories[randomCategoryNumber]
+                    }))
+
+                # Move to the next 
+                playerCounter += 1
+                if playerCounter == len(users):  # After the last player, start a new round
+                    roundNumber += 1
+                    playerCounter = 0
+                
                 img = Image.open(BytesIO(data))
 
                 # Check if the image has an alpha channel (RGBA)
@@ -278,77 +266,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 predicted_class = np.argmax(prediction)
 
                 # Send the prediction result to the current player (drawing)
-                
-                
-                await manager.broadcast(f"Prediction: {categories[predicted_class]}")
-                await manager.broadcast_image(data)
-  
+                await websocket.send_text(f"Prediction: {categories[predicted_class]}")
 
             elif "text" in data:
-                # coordinateData = data["text"]
-                # coordinateData = json.loads(coordinateData)
-                # # print(coordinateData)
-                # await websocket.send_text(json.dumps(coordinateData))
-                convertedData = json.loads(data["text"])
-                print(convertedData)
-                if "type" in convertedData:
-                    if convertedData["type"] == "disconnect":
-                        del users[convertedData[userId]]
-                        try:
-                            await manager.broadcast(json.dumps(users));
-                        except Exception as e:
-                            print(f"Exception type: {type(e).__name__}")
-                            print(e)
-                            print(manager.getActiveConnections())
-                            manager.disconnect(websocket)
-                            
+                coordinateData = data["text"]
+                coordinateData = json.loads(coordinateData)
+                # print(coordinateData)
+                await websocket.send_text(json.dumps(coordinateData))
 
-                    if convertedData["type"] == "roundTracking":
-                        # if all rounds have ended, reset the game
-                        if len(roundTracker[5]) == 5:
-                            roundTracker = { 1: [], 2: [], 3: [], 4: [], 5:[]}
-                        else:
-                            print(roundTracker)
-                            if (len(roundTracker[convertedData["round"]]) < 4):
-                                roundTracker[convertedData["round"]].append({"playerId": convertedData["playerId"], "guess": convertedData["guess"]})
-                                print(roundTracker)
-                                randomCategoryNumber = random.randint(0, len(categories) - 1)
-
-                                # if all other players except the one drawing have submitted their answers, go on to the next turn
-                                if len(roundTracker[convertedData["round"]]) == 4:
-                                    playerCounter+= 1
-                                    roundNumber+=1
-                                    try: 
-                                        await manager.broadcast(json.dumps({
-                                            "type": "newTurn",
-                                            "round": roundNumber,
-                                            "playerDrawing": playerCounter,
-                                            "drawingSubject": categories[randomCategoryNumber]
-                                        }))
-                                    except WebSocketDisconnect:
-                                        print("webscocket disconnect")
-                                        manager.disconnect(websocket)
-                                   
-                                    # if playerCounter == 4:
-                                    #     playerCounter = 0
-                                    #     roundNumber += 1
-  
-                    if convertedData["type"] == "drawing":
-                        try: 
-                            await manager.broadcast(data["text"])
-                        except WebSocketDisconnect:
-                            print("webscocket disconnect")
-                            manager.disconnect(websocket)
-            
-           
-    except Exception as e:
-        print(f"Exception type: {type(e).__name__}")
-        # if (e == 'Cannot call "receive" once a disconnect message has been received.'):
-        #     print(e)
-        # else:
-        #     # print(e)
-        #     traceback.print_exc()
-        #     raise RuntimeError(e)            
-        # manager.disconnect(websocket)
-        print(e)
-
+    except WebSocketDisconnect:
+        async with websockets_lock:
+            websockets.remove(websocket)
