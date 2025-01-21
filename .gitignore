@@ -4,4 +4,4 @@ __pycache__/
 *.pyo
 /dataset
 /.quickdrawcache
-model/model/keras
+model/model.keras
