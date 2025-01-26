@@ -16,12 +16,14 @@ import json
 import asyncio
 from ConnectionManager import ConnectionManager
 import traceback
+from pathlib import Path
 
 
 app = FastAPI()
 
 origins = [
     "http://localhost:3000",
+    "https://scribble-animals.vercel.app/"
 ]
 
 app.add_middleware(
@@ -38,7 +40,7 @@ answerCounter = 0
 wrongCounter = 0
 users = []
 roomsAndUsers = {}
-websockets_lock = asyncio.Lock()
+# websockets_lock = asyncio.Lock()
 userId = 0
 playerCounter = 0
 websockets = []
@@ -103,8 +105,10 @@ categories =[
 # # Get model input and output details
 # input_details = interpreter.get_input_details()
 # output_details = interpreter.get_output_details()
-
-model = load_model('./model/model.keras') 
+MODEL_PATH = Path("model") / "model.keras"
+print(MODEL_PATH)
+PROCESSED_IMAGE_PATH = Path("images") / "processed_image.png"
+model = load_model(MODEL_PATH)
 
 def preprocess_image(img_path):
      # Load the image in grayscale mode
@@ -122,7 +126,7 @@ def preprocess_image(img_path):
     img_array = np.expand_dims(img_array, axis=0)
 
     # Save the processed image for verification (optional)
-    img_resized.save('./images/processed_image.png')
+    img_resized.save(PROCESSED_IMAGE_PATH)
 
     return img_array
 
@@ -333,7 +337,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     img = background
 
                 # Define the file path to save the image
-                file_path = os.path.join("images", "uploaded_image.png")
+                file_path = Path("images") / "uploaded_image.png"
                 img.save(file_path)
 
                 # Preprocess the image
