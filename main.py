@@ -104,7 +104,7 @@ categories =[
 # # Get model input and output details
 # input_details = interpreter.get_input_details()
 # output_details = interpreter.get_output_details()
-MODEL_PATH = Path(__file__).resolve().parent / "model" / "model28.keras"
+MODEL_PATH = Path(__file__).resolve().parent / "model" / "model50.keras"
 print(MODEL_PATH)
 PROCESSED_IMAGE_PATH = Path(__file__).resolve().parent / "images" / "processed_image.png"
 UPLOADED_IMAGE_PATH = Path(__file__).resolve().parent / "images" / "uploaded_image.png"
@@ -114,8 +114,8 @@ def preprocess_image(img_path):
      # Load the image in grayscale mode
     img = Image.open(img_path)
 
-    # Resize the image to 28x28 pixels, preserving the aspect ratio and padding with white
-    img_resized = ImageOps.fit(img, (100, 100), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+    # Resize the image to 50x50 pixels, preserving the aspect ratio and padding with white
+    img_resized = ImageOps.fit(img, (50, 50), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
 
     img_resized = img_resized.convert('L')
 
