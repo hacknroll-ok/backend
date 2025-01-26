@@ -33,7 +33,9 @@ app.add_middleware(
 )
 manager = ConnectionManager()
 responseCount = 0
-roundTracker = { 1: [], 2: [], 3: [], 4: [], 5:[]}
+roundTracker = {}
+answerCounter = 0
+wrongCounter = 0
 users = []
 roomsAndUsers = {}
 websockets_lock = asyncio.Lock()
@@ -41,6 +43,8 @@ userId = 0
 playerCounter = 0
 websockets = []
 roundNumber = 1
+allUsersGotWrong = False
+aiGuessCorrect = False
 categories =[
     "ant",
     "bat",
@@ -157,10 +161,13 @@ async def createUser(username: Username):
     newUser = {"id": userId, "name": username.name, "score": 0}
     users.append(newUser);    
     userId += 1
+
     return {
         "message": "user created",
         "userId": userId - 1
     }
+
+
 
 @app.post("/api/game")
 async def updateScore(userId: int, isCorrect: bool):
@@ -192,25 +199,30 @@ async def websocket_endpoint(websocket: WebSocket):
     global categories
     global websockets
     global manager
+    global users
     randomCategoryNumber = random.randint(0, len(categories) - 1)
 
-    # disconnected_websockets = []
-    await manager.connect(websocket)
-    # async with websockets_lock:
-    #     CLIENTS.add(websocket)
-    # print(CLIENTS)
+
+    await manager.connect(websocket, userId-1)
+
 
     
 
     try:
         await manager.broadcast(json.dumps(users));
-    except Exception as e:
-        print(f"Exception type: {type(e).__name__}")
-        print(e)
-        manager.disconnect(websocket)
+    except WebSocketDisconnect:
+        # print(f"Exception type: {type(e).__name__}")
+        # print(e)
+        userWhoLeft = manager.disconnect(websocket)
+        print(f"user left: {userWhoLeft}")
+        if userWhoLeft != "nobody":
+            users = list(filter(lambda user: user["id"] != userWhoLeft, users))
+            await manager.broadcast(json.dumps(users));
+        print(users)
         print(manager.getActiveConnections())
+        return
     
-    if len(users) == 5:
+    if len(users) == 2:
         try: 
             await manager.broadcast(json.dumps({
                 "type": "newTurn",
@@ -219,11 +231,20 @@ async def websocket_endpoint(websocket: WebSocket):
                 "drawingSubject": categories[randomCategoryNumber],
             }))
         
-        except Exception as e:
-            print(f"Exception type: {type(e).__name__}")
-            print(e)
-            manager.disconnect(websocket)
+        except WebSocketDisconnect:
+            # print(f"Exception type: {type(e).__name__}")
+            # print(e)
+            # manager.disconnect(websocket)
+            # print(manager.getActiveConnections())
+            userWhoLeft = manager.disconnect(websocket)
+            print(f"user left: {userWhoLeft}")
+            if userWhoLeft != "nobody":
+                users = list(filter(lambda user: user["id"] != userWhoLeft, users))
+                await manager.broadcast(json.dumps(users));
+            print(users)
             print(manager.getActiveConnections())
+            return
+
 
 
 
@@ -242,17 +263,60 @@ async def websocket_endpoint(websocket: WebSocket):
 
     #     # Remove disconnected websockets
     #     for ws in disconnected_websockets:
-    #         websockets.remove(ws)
+    #         
 
     try:
         while True:
             global playerCounter
             global roundNumber
             global roundTracker
+            global answerCounter
+            global wrongCounter
+            global aiGuessCorrect
+            global allUsersGotWrong
+
+            if aiGuessCorrect and allUsersGotWrong:
+                print("drawing user add 1 point")
+                users[playerCounter]["score"] += 1
+                aiGuessCorrect = False
+                allUsersGotWrong = False
+                try: 
+                    await manager.broadcast(json.dumps(users))
+
+                except WebSocketDisconnect:
+                    # print(f"Exception type: {type(e).__name__}")
+                    # print(e)
+                    # manager.disconnect(websocket)
+                    # print(manager.getActiveConnections())
+                    userWhoLeft = manager.disconnect(websocket)
+                    print(f"user left: {userWhoLeft}")
+                    if userWhoLeft != "nobody":
+                        users = list(filter(lambda user: user["id"] != userWhoLeft, users))
+                        await manager.broadcast(json.dumps(users));
+                    print(users)
+                    print(manager.getActiveConnections())
+                    return
+
+
 
             # Receive image data from WebSocket 
+            try:
+                data = await manager.receive(websocket)
+            except RuntimeError as e:
+                # print(e)
+                # manager.disconnect(websocket);
+                # print(manager.getActiveConnections());
+                # return
+                userWhoLeft = manager.disconnect(websocket)
+                print(f"user left: {userWhoLeft}")
+                if userWhoLeft != "nobody":
+                    users = list(filter(lambda user: user["id"] != userWhoLeft, users))
+                    await manager.broadcast(json.dumps(users));
+                print(users)
+                print(manager.getActiveConnections())
+                return
 
-            data = await manager.receive(websocket)
+            
             # Create a PIL image from the byte data
             if ("bytes" in data):
                 data = data["bytes"]
@@ -278,10 +342,25 @@ async def websocket_endpoint(websocket: WebSocket):
                 predicted_class = np.argmax(prediction)
 
                 # Send the prediction result to the current player (drawing)
-                
-                
-                await manager.broadcast(f"Prediction: {categories[predicted_class]}")
-                await manager.broadcast_image(data)
+                if (categories[randomCategoryNumber] == categories[predicted_class]):
+                    aiGuessCorrect = True
+                try: 
+                    await manager.broadcast(f"Prediction: {categories[predicted_class]}")
+                    await manager.broadcast_image(data)
+                except WebSocketDisconnect:
+                    # manager.disconnect(websocket)
+                    # print(manager.getActiveConnections())
+                    # return
+                    userWhoLeft = manager.disconnect(websocket)
+                    print(f"user left: {userWhoLeft}")
+                    if userWhoLeft != "nobody":
+                        users = list(filter(lambda user: user["id"] != userWhoLeft, users))
+                        await manager.broadcast(json.dumps(users));
+                    print(users)
+                    print(manager.getActiveConnections())
+                    return
+
+
   
 
             elif "text" in data:
@@ -296,52 +375,115 @@ async def websocket_endpoint(websocket: WebSocket):
                         del users[convertedData[userId]]
                         try:
                             await manager.broadcast(json.dumps(users));
-                        except Exception as e:
-                            print(f"Exception type: {type(e).__name__}")
-                            print(e)
+                        except WebSocketDisconnect:
+                            # print(f"Exception type: {type(e).__name__}")
+                            # print(e)
+                            # print(manager.getActiveConnections())
+                            # manager.disconnect(websocket)
+                            # return
+                            userWhoLeft = manager.disconnect(websocket)
+                            print(f"user left: {userWhoLeft}")
+                            if userWhoLeft != "nobody":
+                                users = list(filter(lambda user: user["id"] != userWhoLeft, users))
+                                await manager.broadcast(json.dumps(users));
+                            print(users)
                             print(manager.getActiveConnections())
-                            manager.disconnect(websocket)
-                            
+                            return
 
                     if convertedData["type"] == "roundTracking":
-                        # if all rounds have ended, reset the game
-                        if len(roundTracker[5]) == 5:
-                            roundTracker = { 1: [], 2: [], 3: [], 4: [], 5:[]}
-                        else:
-                            print(roundTracker)
-                            if (len(roundTracker[convertedData["round"]]) < 4):
-                                roundTracker[convertedData["round"]].append({"playerId": convertedData["playerId"], "guess": convertedData["guess"]})
-                                print(roundTracker)
-                                randomCategoryNumber = random.randint(0, len(categories) - 1)
+                        answerCounter+=1
 
-                                # if all other players except the one drawing have submitted their answers, go on to the next turn
-                                if len(roundTracker[convertedData["round"]]) == 4:
-                                    playerCounter+= 1
+                        
+                        # answerCounter = 0
+                        # if guessing player guesses wrongly
+                        if convertedData["guess"] == "wrong":
+                            # add to wrong counter
+                            print("player guessed wrong")
+                            wrongCounter += 1
+                        # if all guessing players answer wrongly and the AI manage to guess the drawing subject
+                        # the drawer wins 1 point
+                        if (wrongCounter == answerCounter):
+                            print("all users got wrong")
+                            allUsersGotWrong = True;
+                            # users[playerCounter].score += 1
+
+                        
+                        
+                        # playerCounter+=1
+                        print(f"roundnumber: {roundNumber}")
+                        print(f"playerCounter: {playerCounter}")
+                        print(f"answerCounter: {answerCounter}")
+                        # if the number of rounds do not exceed the available users, continue the game
+                        if roundNumber < len(users):
+                            if answerCounter == len(users) - 1:
+                                try: 
+                                    # increment values for next round
                                     roundNumber+=1
-                                    try: 
-                                        await manager.broadcast(json.dumps({
+                                    randomCategoryNumber = random.randint(0, len(categories) - 1)
+                                    await manager.broadcast(json.dumps({
                                             "type": "newTurn",
                                             "round": roundNumber,
-                                            "playerDrawing": playerCounter,
+                                            "playerDrawing": roundNumber-1,
                                             "drawingSubject": categories[randomCategoryNumber]
-                                        }))
-                                    except WebSocketDisconnect:
-                                        print("webscocket disconnect")
-                                        manager.disconnect(websocket)
-                                   
-                                    # if playerCounter == 4:
-                                    #     playerCounter = 0
-                                    #     roundNumber += 1
-  
-                    if convertedData["type"] == "drawing":
-                        try: 
-                            await manager.broadcast(data["text"])
-                        except WebSocketDisconnect:
-                            print("webscocket disconnect")
-                            manager.disconnect(websocket)
+                                    }))
+                                    wrongCounter = 0
+                                    answerCounter = 0
+                                except WebSocketDisconnect:
+                                    # print("webscocket disconnect")
+                                    # manager.disconnect(websocket)
+                                    # return
+                                    userWhoLeft = manager.disconnect(websocket)
+                                    print(f"user left: {userWhoLeft}")
+                                    if userWhoLeft != "nobody":
+                                        users = list(filter(lambda user: user["id"] != userWhoLeft, users))
+                                        await manager.broadcast(json.dumps(users));
+                                    print(users)
+                                    print(manager.getActiveConnections())
+                                    return
+                        elif roundNumber == len(users):
+                            # in the last round, if all players have ans
+                            if answerCounter == len(users) - 1:
+                                # reset rounds for next set of players\
+                                roundNumber = 1
+                                answerCounter = 0
+                                wrongCounter = 0
+                                
+                                try: 
+                                    await manager.broadcast(json.dumps({
+                                        "type": "end",
+                                    }))
+                                except WebSocketDisconnect:
+                                    # print("webscocket disconnect")
+                                    # manager.disconnect(websocket)
+                                    # return
+                                    userWhoLeft = manager.disconnect(websocket)
+                                    print(f"user left: {userWhoLeft}")
+                                    if userWhoLeft != "nobody":
+                                        users = list(filter(lambda user: user["id"] != userWhoLeft, users))
+                                        await manager.broadcast(json.dumps(users));
+                                    print(users)
+                                    print(manager.getActiveConnections())
+                                    return
+                    
+                if convertedData["type"] == "drawing":
+                    try: 
+                        await manager.broadcast(data["text"])
+                    except WebSocketDisconnect:
+                        print("webscocket disconnect")
+                        # manager.disconnect(websocket)
+                        # return
+                        userWhoLeft = manager.disconnect(websocket)
+                        print(f"user left: {userWhoLeft}")
+                        if userWhoLeft != "nobody":
+                            users = list(filter(lambda user: user["id"] != userWhoLeft, users))
+                            await manager.broadcast(json.dumps(users));
+                        print(users)
+                        print(manager.getActiveConnections())
+                        return
+                    
             
            
-    except Exception as e:
+    except RuntimeError as e:
         print(f"Exception type: {type(e).__name__}")
         # if (e == 'Cannot call "receive" once a disconnect message has been received.'):
         #     print(e)
