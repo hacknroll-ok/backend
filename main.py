@@ -105,9 +105,10 @@ categories =[
 # # Get model input and output details
 # input_details = interpreter.get_input_details()
 # output_details = interpreter.get_output_details()
-MODEL_PATH = Path("model") / "model.keras"
+MODEL_PATH = Path(__file__).resolve().parent / "model" / "model.keras"
 print(MODEL_PATH)
-PROCESSED_IMAGE_PATH = Path("images") / "processed_image.png"
+PROCESSED_IMAGE_PATH = Path(__file__).resolve().parent / "images" / "processed_image.png"
+UPLOADED_IMAGE_PATH = Path(__file__).resolve().parent / "images" / "uploaded_image.png"
 model = load_model(MODEL_PATH)
 
 def preprocess_image(img_path):
@@ -337,7 +338,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     img = background
 
                 # Define the file path to save the image
-                file_path = Path("images") / "uploaded_image.png"
+                file_path = UPLOADED_IMAGE_PATH
                 img.save(file_path)
 
                 # Preprocess the image
