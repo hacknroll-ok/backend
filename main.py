@@ -192,7 +192,7 @@ async def updateScore(userId: int, isCorrect: bool):
         #     for ws in disconnected_websockets:
         #         websockets.remove(ws)
 
-
+randomCategoryNumber = random.randint(0, len(categories) - 1)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -200,7 +200,9 @@ async def websocket_endpoint(websocket: WebSocket):
     global websockets
     global manager
     global users
-    randomCategoryNumber = random.randint(0, len(categories) - 1)
+    global userId
+    global randomCategoryNumber
+    
 
 
     await manager.connect(websocket, userId-1)
@@ -222,7 +224,7 @@ async def websocket_endpoint(websocket: WebSocket):
         print(manager.getActiveConnections())
         return
     
-    if len(users) == 2:
+    if len(users) > 1:
         try: 
             await manager.broadcast(json.dumps({
                 "type": "newTurn",
@@ -447,6 +449,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 roundNumber = 1
                                 answerCounter = 0
                                 wrongCounter = 0
+                                userId = 0
                                 
                                 try: 
                                     await manager.broadcast(json.dumps({
