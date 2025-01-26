@@ -104,10 +104,10 @@ categories =[
 # # Get model input and output details
 # input_details = interpreter.get_input_details()
 # output_details = interpreter.get_output_details()
-MODEL_PATH = Path(__file__).resolve().parent / "model.keras"
+MODEL_PATH = Path(__file__).resolve().parent / "model" / "model28.keras"
 print(MODEL_PATH)
-PROCESSED_IMAGE_PATH = Path(__file__).resolve().parent / "processed_image.png"
-UPLOADED_IMAGE_PATH = Path(__file__).resolve().parent / "uploaded_image.png"
+PROCESSED_IMAGE_PATH = Path(__file__).resolve().parent / "images" / "processed_image.png"
+UPLOADED_IMAGE_PATH = Path(__file__).resolve().parent / "images" / "uploaded_image.png"
 model = load_model(MODEL_PATH)
 
 def preprocess_image(img_path):
